@@ -1,0 +1,611 @@
+<!-- CSCE 31903 Programming Paradigms       -->
+<!-- Fall 2025                              -->
+<!-- Assignment 6 functional starter code   -->
+<!-- Jaeden West-->
+
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game</title>
+    <link rel="stylesheet" href="Link.css" />
+  </head>
+  <body>
+    <a href="../../Resume.html" class="returnLink">Back to Resume</a>
+    <h2>Drag your map JSON file here</h2>
+    <div id="dropZone">Drop map file here</div>
+
+    <div
+      id="scoreDisplay"
+      style="
+        position: absolute;
+        top: 10px;
+        right: 20px;
+        font-size: 40px;
+        font-weight: bold;
+        color: black;
+      "
+    >
+      Rupees Collected: <span id="score"> 0</span>
+    </div>
+
+    <br />
+    <canvas id="myCanvas" width="1000" height="500"></canvas>
+    <br />
+
+    <script type="text/javascript">
+      "use strict";
+
+      const ROOM_WIDTH = 1000;
+      const ROOM_HEIGHT = 500;
+      const WORLD_WIDTH = ROOM_WIDTH * 2;
+      const WORLD_HEIGHT = ROOM_HEIGHT * 2;
+      function createSprite(x, y, w, h, image_url, update_fn) {
+        var img = new Image();
+        img.src = image_url;
+        return {
+          x: x,
+          y: y,
+          w: w,
+          h: h,
+          px: x,
+          py: y,
+          speed: 10,
+          image: img,
+          isValid: true,
+          update: update_fn,
+          drawYourself: function (g, scrollX, scrollY) {
+            g.drawImage(
+              this.image,
+              this.x - scrollX,
+              this.y - scrollY,
+              this.w,
+              this.h
+            );
+          },
+          isColliding: function (other) {
+            return !(
+              this.x + this.w < other.x ||
+              this.x > other.x + other.w ||
+              this.y + this.h < other.y ||
+              this.y > other.y + other.h
+            );
+          },
+        };
+      }
+      function createLink(x, y) {
+        //need to make links width and height be defined instead of just a number make it a variable
+        var l = createSprite(x, y, 80, 59, "images/link1.png", sitStill);
+        l.images = [];
+        //double check how many images per direction
+        l.MAX_IMAGES_PER_DIRECTION = 11;
+        l.NUM_DIRECTIONS = 4;
+        l.currentFrame = 0;
+        l.direction = 0;
+        l.isLink = true;
+        let index = 1;
+        for (let i = 0; i < l.NUM_DIRECTIONS; i++) {
+          l.images[i] = [];
+          for (let j = 0; j < l.MAX_IMAGES_PER_DIRECTION; j++) {
+            l.images[i].push(new Image());
+            l.images[i][j].src = "images/link" + index++ + ".png";
+          }
+        }
+
+        l.drawYourself = function (g, scrollX, scrollY) {
+          g.drawImage(
+            this.images[this.direction][this.currentFrame],
+            this.x - scrollX,
+            this.y - scrollY,
+            this.w,
+            this.h
+          );
+        };
+
+        l.moveYourself = function (dir) {
+          this.currentFrame =
+            (this.currentFrame + 1) % this.MAX_IMAGES_PER_DIRECTION;
+          if (dir == "left") {
+            this.x -= this.speed;
+            this.direction = 1;
+          } else if (dir == "right") {
+            this.x += this.speed;
+            this.direction = 2;
+          }
+          if (dir == "down") {
+            this.y += this.speed;
+            this.direction = 0;
+          } else if (dir == "up") {
+            this.y -= this.speed;
+            this.direction = 3;
+          }
+        };
+
+        //we need to add a isLink function for collision
+
+        return l;
+      }
+
+      function createTree(x, y) {
+        var t = createSprite(x, y, 50, 50, "images/tree.png", sitStill);
+        t.isTree = true;
+        //we need to add a isTree function for collision
+
+        return t;
+      }
+
+      function createTreasureChest(x, y) {
+        var tc = createSprite(
+          x,
+          y,
+          40,
+          40,
+          "images/treasurechest.png",
+          function () {}
+        );
+        tc.isTreasureChest = true;
+        tc.hasRupee = false;
+        tc.rupee = true;
+        tc.countdown = 0;
+        tc.RupeeDelay = 25;
+        tc.RupeeLifetime = 100;
+        tc.collected = false;
+        tc.rupeeCollectible = false;
+        tc.rupeeImage = new Image();
+        tc.rupeeImage.src = "images/rupee.png";
+        //we need to add a isTreasureChest function for collision
+        tc.update = function () {
+          if (!this.isValid) return;
+
+          if (this.hasRupee && !this.collected) {
+            this.countdown++;
+
+            this.rupeeCollectible = this.countdown > this.RupeeDelay;
+
+            if (this.rupeeCollectible) {
+              this.lifetimeCounter = (this.lifetimeCounter || 0) + 1;
+              if (this.lifetimeCounter > this.RupeeLifetime) {
+                this.isValid = false;
+              }
+            }
+          }
+        };
+        //called when chest is hit
+        tc.interact = function () {
+          if (this.hasRupee) return;
+
+          this.hasRupee = true;
+          this.countdown = 0;
+        };
+
+        tc.drawYourself = function (g, scrollX, scrollY) {
+          if (!this.isValid) return;
+          if (this.collected) return;
+
+          if (this.hasRupee) {
+            g.drawImage(
+              this.rupeeImage,
+              this.x - scrollX,
+              this.y - scrollY,
+              this.w,
+              this.h
+            );
+          } else {
+            g.drawImage(
+              this.image,
+              this.x - scrollX,
+              this.y - scrollY,
+              this.w,
+              this.h
+            );
+          }
+        };
+
+        tc.isUncollected = function () {
+          //when its chest or in the rupee delay phase
+          return (
+            !this.collected &&
+            (!this.hasRupee || this.countdown <= this.RupeeDelay)
+          );
+        };
+        return tc;
+      }
+
+      function createBoomerang(link) {
+        let x = link.x;
+        let y = link.y;
+
+        switch (link.direction) {
+          case 0: // down
+            x += link.w / 2 - 10;
+            y += link.h;
+            break;
+          case 1: //left
+            x -= 20;
+            y += link.h / 2 - 15;
+            break;
+          case 2: //right
+            x += link.w;
+            y += link.h / 2 - 15;
+            break;
+          case 3: //up
+            x += link.w / 2 - 10;
+            y -= 30;
+            break;
+        }
+        var b = createSprite(
+          x,
+          y,
+          30,
+          40,
+          "images/boomerang1.png",
+          function () {}
+        );
+        b.isBoomerang = true;
+        b.images = [];
+        b.NUM_IMAGES = 4;
+        b.currentFrame = 0;
+        //doing plus one so its faster then link for collision
+        b.speed = 15;
+        b.direction = link.direction;
+
+        for (let i = 1; i <= b.NUM_IMAGES; i++) {
+          let image = new Image();
+          image.src = "images/boomerang" + i + ".png";
+          b.images.push(image);
+        }
+
+        b.drawYourself = function (g, scrollX, scrollY) {
+          g.drawImage(
+            this.images[this.currentFrame],
+            this.x - scrollX,
+            this.y - scrollY,
+            this.w,
+            this.h
+          );
+        };
+
+        b.moveYourself = function () {
+          this.currentFrame = (this.currentFrame + 1) % this.NUM_IMAGES;
+          switch (this.direction) {
+            case 0:
+              this.y += this.speed;
+              break;
+            case 1:
+              this.x -= this.speed;
+              break;
+            case 2:
+              this.x += this.speed;
+              break;
+            case 3:
+              this.y -= this.speed;
+              break;
+          }
+        };
+
+        b.update = function () {
+          b.moveYourself();
+        };
+
+        //we need to add a isBoomerang function for collision
+        return b;
+      }
+
+      function resolveCollision(moving, still) {
+        let dx = moving.x - moving.px;
+        let dy = moving.y - moving.py;
+
+        if (
+          dx > 0 &&
+          moving.px + moving.w <= still.x &&
+          moving.x + moving.w > still.x
+        ) {
+          moving.x = still.x - moving.w - 2;
+        } else if (
+          dx < 0 &&
+          moving.px >= still.x + still.w &&
+          moving.x < still.x + still.w
+        ) {
+          moving.x = still.x + still.w + 2;
+        }
+        if (
+          dy > 0 &&
+          moving.py + moving.h <= still.y &&
+          moving.y + moving.h > still.y
+        ) {
+          moving.y = still.y - moving.h - 2;
+        } else if (
+          dy < 0 &&
+          moving.py >= still.y + still.h &&
+          moving.y < still.y + still.h
+        ) {
+          moving.y = still.y + still.h + 2;
+        }
+      }
+
+      function savePreviousPosition(sprite) {
+        sprite.px = sprite.x;
+        sprite.py = sprite.y;
+      }
+
+      function sitStill() {} // default update function
+
+      //function createModel(graphics, roomsX, roomsY)
+      function createModel() {
+        //manually hard code the map instead of drag and drop
+        //both mechanisms are provided so you can choose what works best for you
+        var sprites = [];
+
+        var link = createLink(50, 50);
+        sprites.push(link);
+
+        var TreasureChest = createTreasureChest(300, 20);
+        sprites.push(TreasureChest);
+
+        var Tree = createTree(70, 100);
+        sprites.push(Tree);
+
+        return {
+          sprites: sprites,
+          link: link,
+          addBoomerang: function () {
+            this.sprites.push(createBoomerang(this.link));
+          },
+          TreasureChest: TreasureChest,
+          Tree: Tree,
+
+          scrollX: 0,
+          scrollY: 0,
+        };
+      }
+
+      function updateRoomView(model) {
+        let roomX = Math.floor(model.link.x / ROOM_WIDTH);
+        let roomY = Math.floor(model.link.y / ROOM_HEIGHT);
+
+        model.scrollX = roomX * ROOM_WIDTH;
+        model.scrollY = roomY * ROOM_HEIGHT;
+
+        //clamp to world size bounds
+        model.scrollX = Math.min(
+          Math.max(0, model.scrollX),
+          WORLD_WIDTH - ROOM_WIDTH
+        );
+        model.scrollY = Math.min(
+          Math.max(0, model.scrollY),
+          WORLD_HEIGHT - ROOM_HEIGHT
+        );
+      }
+
+      function updateView(canvas, model) {
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Fill background dark green
+        ctx.fillStyle = "rgb(72,152,72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (var i = 0; i < model.sprites.length; i++) {
+          var sprite = model.sprites[i];
+          //ctx.drawImage(sprite.image, sprite.x, sprite.y, sprite.w, sprite.h)
+          sprite.drawYourself(ctx, model.scrollX, model.scrollY);
+        }
+      }
+
+      function updateController(model, keys) {
+        if (keys.right) model.link.moveYourself("right");
+        if (keys.left) model.link.moveYourself("left");
+        if (keys.up) model.link.moveYourself("up");
+        if (keys.down) model.link.moveYourself("down");
+
+        model.link.x = Math.max(
+          0,
+          Math.min(model.link.x, WORLD_WIDTH - model.link.w)
+        );
+        model.link.y = Math.max(
+          0,
+          Math.min(model.link.y, WORLD_HEIGHT - model.link.h)
+        );
+      }
+
+      function gameLoop(model, canvas, keys) {
+        //save prev positions
+        model.sprites.forEach(savePreviousPosition);
+        //move link
+        updateController(model, keys);
+
+        model.sprites.forEach((sprite) => sprite.update());
+
+        model.sprites.forEach((moving) => {
+          model.sprites.forEach((still) => {
+            if (still === moving) return;
+            if (!moving.isColliding(still)) return;
+            //Links Collisions
+
+            if (moving.isLink) {
+              if (still.isTreasureChest && still.isUncollected()) {
+                still.interact();
+              }
+              if (
+                still.isTreasureChest &&
+                still.hasRupee &&
+                still.rupeeCollectible &&
+                !still.collected
+              ) {
+                still.collected = true;
+                still.hasRupee = false;
+
+                const scoreElement = document.getElementById("score");
+                scoreElement.textContent =
+                  parseInt(scoreElement.textContent) + 1;
+              }
+
+              if (
+                still.isTree ||
+                (still.isTreasureChest && still.isUncollected())
+              ) {
+                resolveCollision(moving, still);
+              }
+            }
+
+            if (moving.isBoomerang) {
+              if (still.isTreasureChest && still.isUncollected()) {
+                still.interact();
+              }
+              if (
+                still.isTreasureChest &&
+                still.hasRupee &&
+                still.rupeeCollectible &&
+                !still.collected
+              ) {
+                still.collected = true;
+                still.hasRupee = false;
+
+                const scoreElement = document.getElementById("score");
+                scoreElement.textContent =
+                  parseInt(scoreElement.textContent) + 1;
+              }
+
+              if (
+                still.isTree ||
+                (still.isTreasureChest && still.isUncollected())
+              ) {
+                moving.isValid = false;
+              }
+            }
+          });
+        });
+
+        model.sprites = model.sprites.filter((sprite) => sprite.isValid);
+
+        //update camera
+        updateRoomView(model);
+        //draw everything
+        updateView(canvas, model);
+      }
+
+      //this code will allow you to drag and drop your map instead of hardcoding it!
+      //do not change this code
+      function setupDragAndDrop(model) {
+        var dropZone = document.getElementById("dropZone");
+
+        // Prevent default drag behaviors
+        function preventDefaults(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        ["dragenter", "dragover", "dragleave", "drop"].forEach(function (
+          eventName
+        ) {
+          dropZone.addEventListener(eventName, preventDefaults);
+        });
+
+        // Highlight drop zone when dragging over
+        ["dragenter", "dragover"].forEach(function (eventName) {
+          dropZone.addEventListener(eventName, function () {
+            dropZone.classList.add("hover");
+          });
+        });
+
+        ["dragleave", "drop"].forEach(function (eventName) {
+          dropZone.addEventListener(eventName, function () {
+            dropZone.classList.remove("hover");
+          });
+        });
+
+        // Handle dropped files
+        dropZone.addEventListener("drop", function (e) {
+          var file = e.dataTransfer.files[0];
+          if (!file) return;
+          if (!file.name.endsWith(".json")) {
+            alert("Please drop your map JSON file.");
+            return;
+          }
+
+          var reader = new FileReader();
+          reader.onload = function (ev) {
+            try {
+              var data = JSON.parse(ev.target.result);
+              loadMap(model, data);
+            } catch (err) {
+              alert("Error parsing JSON: " + err.message);
+            }
+          };
+          reader.readAsText(file);
+        });
+      }
+
+      // this reads the json file. Note that turtleX and turtleY are stored in the .json file
+      // also note that f is each entry in the fishes array and f.x and f.y are the attributes of
+      // each object in that array
+      // if you've saved w and h in your .json, use those instead of hardcoding width and height
+      // this function is called upon the event of dragging/dropping the json file onto the page
+      function loadMap(model, mapData) {
+        //clear the current sprites before loading from file
+        model.sprites = [];
+
+        model.link = createLink(mapData.linkX, mapData.linkY);
+        model.sprites.push(model.link);
+
+        for (var i = 0; i < mapData.Tree.length; i++) {
+          var t = mapData.Tree[i];
+          var Tree = createTree(t.x, t.y);
+          model.sprites.push(Tree);
+        }
+
+        for (var i = 0; i < mapData.TreasureChest.length; i++) {
+          var tc = mapData.TreasureChest[i];
+          var TreasureChest = createTreasureChest(tc.x, tc.y);
+          model.sprites.push(TreasureChest);
+        }
+      }
+
+      var canvas = document.getElementById("myCanvas");
+      var keys = {
+        right: false,
+        left: false,
+        up: false,
+        down: false,
+      };
+      var model = createModel();
+
+      setupDragAndDrop(model);
+
+      //key listeners
+      document.addEventListener("keydown", function (e) {
+        if (e.keyCode == 39) keys.right = true;
+        if (e.keyCode == 37) keys.left = true;
+        if (e.keyCode == 38) keys.up = true;
+        if (e.keyCode == 40) keys.down = true;
+      });
+
+      document.addEventListener("keyup", function (e) {
+        if (e.keyCode == 39) keys.right = false;
+        if (e.keyCode == 37) keys.left = false;
+        if (e.keyCode == 38) keys.up = false;
+        if (e.keyCode == 40) keys.down = false;
+        if (e.keyCode == 32)
+          //spacebar
+          model.addBoomerang();
+      });
+
+      //mouse listener
+      canvas.addEventListener("click", function (event) {
+        var rect = canvas.getBoundingClientRect();
+        var mouseX = event.clientX - rect.left;
+        var mouseY = event.clientY - rect.top;
+
+        for (var i = 0; i < model.sprites.length; i++) {
+          var sprite = model.sprites[i];
+          if (sprite.onclick) {
+            sprite.onclick.call(sprite, mouseX, mouseY);
+          }
+        }
+      });
+
+      setInterval(function () {
+        gameLoop(model, canvas, keys);
+      }, 40);
+    </script>
+  </body>
+</html>

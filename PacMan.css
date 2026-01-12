@@ -1,0 +1,9 @@
+body{
+    margin-top: 5rem;
+    text-align:center;
+}
+
+#gameCanvas{
+    background-color: black;
+}
+
